@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#00e87a" />
+  <meta name="description" content="AP3XVER5E — AI-powered Project Intelligence System" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="AP3XVER5E" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <title>AP3XVER5E</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ══════════════ HEADER ══════════════ -->
+  <header class="app-header">
+    <button class="header-back" id="header-back" title="Back to Dashboard">←</button>
+    <div class="header-logo">AP3XVER5E<sub>v1.0</sub></div>
+    <div class="header-title" id="header-title"></div>
+    <div class="header-badge">INTELLIGENCE</div>
+  </header>
+
+  <!-- ══════════════ DASHBOARD VIEW ══════════════ -->
+  <div id="view-dashboard" class="view active">
+
+    <!-- PWA Install Banner -->
+    <div class="install-banner" id="install-banner">
+      <span>Install <strong>AP3XVER5E</strong> as an app for instant offline access.</span>
+      <button class="install-banner-btn" id="install-btn">INSTALL</button>
+    </div>
+
+    <!-- Analyse Form -->
+    <div class="analyse-form">
+      <label class="form-label" for="url-input">↯ Analyse a Project</label>
+      <div class="url-row">
+        <input
+          type="url"
+          id="url-input"
+          class="url-input"
+          placeholder="https://example.com"
+          autocomplete="off"
+          spellcheck="false"
+          inputmode="url"
+        />
+        <button class="analyse-btn" id="analyse-btn">RUN ANALYSIS</button>
+      </div>
+      <!-- Status -->
+      <div class="status-row" id="status-row">
+        <div class="spinner" id="status-spinner"></div>
+        <span id="status-text">Processing...</span>
+      </div>
+    </div>
+
+    <!-- Projects List -->
+    <div class="section-label">Saved Projects</div>
+    <div id="projects-container"></div>
+
+    <!-- Config -->
+    <div class="config-section">
+      <div class="section-label">Configuration</div>
+      <div class="config-box">
+        <label class="form-label" for="api-key-input" style="font-size:0.6rem;">OpenAI API Key</label>
+        <div class="config-row">
+          <input
+            type="password"
+            id="api-key-input"
+            class="config-input"
+            placeholder="sk-..."
+            autocomplete="off"
+          />
+          <button class="config-save-btn" id="save-key-btn">SAVE</button>
+        </div>
+        <div class="key-status" id="key-status"></div>
+        <p class="config-hint" style="margin-top:8px;">
+          Stored locally in your browser only. Never leaves your device except to OpenAI directly.
+          Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a>.
+        </p>
+      </div>
+    </div>
+
+  </div>
+  <!-- /view-dashboard -->
+
+  <!-- ══════════════ PROJECT VIEWER VIEW ══════════════ -->
+  <div id="view-project" class="view">
+
+    <div class="viewer-url" id="viewer-url"></div>
+    <div class="viewer-date" id="viewer-date"></div>
+
+    <div class="analysis-sections" id="analysis-sections">
+      <!-- Rendered by JS -->
+    </div>
+
+  </div>
+  <!-- /view-project -->
+
+</div>
+<!-- /app -->
+
+<!-- Floating back button -->
+<button class="back-btn-float" id="back-btn-float">← Back to Dashboard</button>
+
+<script src="/app.js"></script>
+</body>
+</html>
