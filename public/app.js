@@ -1,4 +1,33 @@
-/* ================================
+function saveKey() {
+  try {
+    const raw = apiKeyInput.value.trim();
+    // Accept masked value (already saved) or a new key starting with 'sk-'
+    if (!raw || raw.startsWith('•')) {
+      if (window.AP3X_API_KEY) {
+        keyStatusEl.textContent = '✓ Key already saved';
+        keyStatusEl.style.color  = 'var(--accent)';
+      } else {
+        keyStatusEl.textContent = 'Paste your OpenAI key (starts with sk-...)';
+        keyStatusEl.style.color  = '#ff6b6b';
+      }
+      return;
+    }
+    if (!raw.startsWith('sk-')) {
+      keyStatusEl.textContent = 'Invalid key — must start with sk-...';
+      keyStatusEl.style.color  = '#ff6b6b';
+      return;
+    }
+    const k = raw;
+    localStorage.setItem('ap3x_openai_key', k);
+    window.AP3X_API_KEY  = k;
+    apiKeyInput.value    = '•'.repeat(Math.min(k.length, 24));
+    keyStatusEl.textContent = '✓ Key saved — ready to analyse';
+    keyStatusEl.style.color  = 'var(--accent)';
+  } catch (e) {
+    keyStatusEl.textContent = 'Error saving key: ' + e.message;
+    keyStatusEl.style.color  = '#ff6b6b';
+  }
+}/* ================================
    AP3XVER5E — Core App v2.0
    Phase 2 — Intelligence Layer
    ================================ */
@@ -596,24 +625,38 @@ async function extractContent(url) {
   const cached = _extractCache.get(url);
   if (cached && (Date.now() - cached.ts) < EXTRACT_TTL) return cached.content;
 
-  const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-  let res;
-  try {
-    res = await fetch(proxy, { signal: AbortSignal.timeout(22000) });
-  } catch {
-    throw new Error('Unable to fetch website — check the URL or your connection.');
-  }
-  if (!res.ok) throw new Error(`Unable to fetch website (server returned ${res.status}).`);
+  // Dual proxy chain: allorigins (primary) → corsproxy.io (fallback)
+  const PROXIES = [
+    (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+    (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+  ];
 
-  let data;
-  try { data = await res.json(); } catch {
-    throw new Error('Unable to fetch website — malformed proxy response.');
+  let rawHtml = null;
+  let lastErr  = 'Unable to fetch website.';
+
+  for (const proxyFn of PROXIES) {
+    try {
+      const proxyUrl = proxyFn(url);
+      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(18000) });
+      if (!res.ok) { lastErr = `Proxy returned ${res.status}`; continue; }
+      // allorigins returns { contents: '...' }; corsproxy returns raw HTML
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        const json = await res.json().catch(() => null);
+        if (json?.contents && json.contents.length >= 50) { rawHtml = json.contents; break; }
+        lastErr = 'Proxy returned empty content'; continue;
+      } else {
+        const text = await res.text().catch(() => null);
+        if (text && text.length >= 50) { rawHtml = text; break; }
+        lastErr = 'Proxy returned empty content'; continue;
+      }
+    } catch (e) { lastErr = e.message; continue; }
   }
-  if (!data.contents || data.contents.length < 50)
-    throw new Error('Unable to fetch website — page returned no readable content.');
+
+  if (!rawHtml) throw new Error('Unable to fetch website — ' + lastErr + '. Check the URL or try again.');
 
   const parser = new DOMParser();
-  const doc    = parser.parseFromString(data.contents, 'text/html');
+  const doc    = parser.parseFromString(rawHtml, 'text/html');
 
   const NOISE = [
     'script','style','noscript','nav','footer','header','aside',
@@ -1344,24 +1387,36 @@ function coerceAgentOutput(key, raw) {
 }
 
 async function runAgents(content) {
-  const results = {};
-  for (const agent of AGENTS) {
-    try {
+  // Run all 6 agents in parallel — reduces total wait from ~4 min to ~40 sec
+  const settled = await Promise.allSettled(
+    AGENTS.map(async (agent) => {
       const prompt = agent.prompt(content);
-      const raw    = await callOpenAI(prompt, 600);
+      // 900 tokens — enough for structured agent JSON without truncation
+      const raw    = await callOpenAI(prompt, 900);
+      const cleaned = raw.trim()
+        .replace(/^```(?:json)?[\r\n]*/i, '')
+        .replace(/```[\r\n]*$/, '')
+        .trim();
+      const start = cleaned.indexOf('{');
+      const end   = cleaned.lastIndexOf('}');
       let parsed = null;
-      try {
-        const cleaned = raw.trim().replace(/^```(?:json)?[\r\n]*/i, '').replace(/```[\r\n]*$/, '').trim();
-        const start = cleaned.indexOf('{');
-        const end   = cleaned.lastIndexOf('}');
-        if (start !== -1 && end !== -1) parsed = JSON.parse(cleaned.slice(start, end + 1));
-      } catch { parsed = null; }
-      results[agent.key] = coerceAgentOutput(agent.key, parsed);
-    } catch (e) {
-      console.warn(`[AP3XVER5E] ${agent.name} failed:`, e.message);
+      if (start !== -1 && end !== -1) {
+        try { parsed = JSON.parse(cleaned.slice(start, end + 1)); } catch { parsed = null; }
+      }
+      return { key: agent.key, parsed };
+    })
+  );
+
+  const results = {};
+  AGENTS.forEach((agent, i) => {
+    const outcome = settled[i];
+    if (outcome.status === 'fulfilled') {
+      results[agent.key] = coerceAgentOutput(agent.key, outcome.value.parsed);
+    } else {
+      console.warn(`[AP3XVER5E] ${agent.name} failed:`, outcome.reason?.message);
       results[agent.key] = { ...MULTI_AGENT_FALLBACK.multi_agent_intelligence[agent.key] };
     }
-  }
+  });
   return results;
 }
 
@@ -5894,6 +5949,13 @@ async function runAnalysis() {
   if (!isValidURL(raw)) { setStatus('Invalid URL — try including https://', true); return; }
 
   const url = normalizeURL(raw);
+
+  // Guard: require API key before doing any network work
+  if (!window.AP3X_API_KEY) {
+    setStatus('No OpenAI API key — add your key in the Configuration section below.', true);
+    return;
+  }
+
   _analysisInFlight = true;
   analyseBtn.disabled = true;
   analyseBtn.textContent = '...';
@@ -6476,12 +6538,16 @@ function loadKey() {
   try {
     const k = localStorage.getItem('ap3x_openai_key');
     if (k) {
-      window.AP3X_API_KEY   = k;
-      apiKeyInput.value     = '•'.repeat(Math.min(k.length, 24));
-      keyStatus.textContent = '✓ Key saved';
-      keyStatus.style.color = 'var(--accent)';
+      window.AP3X_API_KEY = k;
+      // Show masked key in input so user knows a key is saved
+      apiKeyInput.value   = '•'.repeat(Math.min(k.length, 24));
+      keyStatusEl.textContent = '✓ Key loaded';
+      keyStatusEl.style.color  = 'var(--accent)';
+    } else {
+      keyStatusEl.textContent = 'No key saved — enter your OpenAI key below';
+      keyStatusEl.style.color  = 'var(--text-2)';
     }
-  } catch (e) { console.warn('Could not load API key:', e.message); }
+  } catch {}
 }
 
 saveKeyBtn.addEventListener('click', () => {
@@ -6531,6 +6597,23 @@ if ('serviceWorker' in navigator) {
 // ═══════════════════════════════════════════════════
 // SECTION 15 — Init
 // ═══════════════════════════════════════════════════
+// Global error handlers — catch uncaught errors in production
+window.onerror = function(msg, src, line, col, err) {
+  console.error('[AP3XVER5E] Uncaught error:', msg, 'at', src + ':' + line);
+  try {
+    const statusRow = document.getElementById('status-row');
+    const statusText = document.getElementById('status-text');
+    if (statusRow && statusText) {
+      statusRow.classList.add('visible', 'error');
+      statusText.textContent = 'Unexpected error: ' + (msg || 'unknown');
+    }
+  } catch {}
+  return false;
+};
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('[AP3XVER5E] Unhandled promise rejection:', e.reason);
+});
+
 (async () => {
   try { await openDB(); }
   catch (e) { console.error('[AP3XVER5E] DB init failed:', e); setStatus('Storage unavailable — ' + e.message, true); return; }
