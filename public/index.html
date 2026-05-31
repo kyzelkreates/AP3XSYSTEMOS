@@ -20,62 +20,60 @@
 
 <div id="app">
 
-  <!-- ══════════════ HEADER ══════════════ -->
+  <!-- HEADER -->
   <header class="app-header">
-    <button class="header-back" id="header-back" title="Back to Dashboard">←</button>
-    <div class="header-logo">AP3XVER5E<sub>v1.0</sub></div>
+    <button class="header-back" id="header-back" title="Back">&#8592;</button>
+    <div class="header-logo">AP3XVER5E<sub>v25</sub></div>
     <div class="header-title" id="header-title"></div>
     <div class="header-badge">INTELLIGENCE</div>
   </header>
 
-  <!-- ══════════════ DASHBOARD VIEW ══════════════ -->
-  <div id="view-dashboard" class="view active">
+  <!-- NAV BAR -->
+  <nav class="app-nav">
+    <button class="nav-tab active" data-view="dashboard">
+      <span class="nav-icon">&#x2B21;</span>
+      <span class="nav-label">Analyse</span>
+    </button>
+    <button class="nav-tab" data-view="portfolio">
+      <span class="nav-icon">&#128202;</span>
+      <span class="nav-label">Portfolio</span>
+    </button>
+    <button class="nav-tab" data-view="agents">
+      <span class="nav-icon">&#129302;</span>
+      <span class="nav-label">Agents</span>
+    </button>
+    <button class="nav-tab" data-view="builder">
+      <span class="nav-icon">&#129854;</span>
+      <span class="nav-label">Builder</span>
+    </button>
+  </nav>
 
-    <!-- PWA Install Banner -->
+  <!-- DASHBOARD VIEW -->
+  <div id="view-dashboard" class="view active">
     <div class="install-banner" id="install-banner">
-      <span>Install <strong>AP3XVER5E</strong> as an app for instant offline access.</span>
+      <span>Install <strong>AP3XVER5E</strong> as an app for offline access.</span>
       <button class="install-banner-btn" id="install-btn">INSTALL</button>
     </div>
-
-    <!-- Analyse Form -->
     <div class="analyse-form">
-      <label class="form-label" for="url-input">↯ Analyse a Project</label>
+      <label class="form-label" for="url-input">&#x21AF; Analyse a Project</label>
       <div class="url-row">
-        <input
-          type="url"
-          id="url-input"
-          class="url-input"
-          placeholder="https://example.com"
-          autocomplete="off"
-          spellcheck="false"
-          inputmode="url"
-        />
+        <input type="url" id="url-input" class="url-input" placeholder="https://example.com"
+          autocomplete="off" spellcheck="false" inputmode="url" />
         <button class="analyse-btn" id="analyse-btn">RUN ANALYSIS</button>
       </div>
-      <!-- Status -->
       <div class="status-row" id="status-row">
         <div class="spinner" id="status-spinner"></div>
         <span id="status-text">Processing...</span>
       </div>
     </div>
-
-    <!-- Projects List -->
     <div class="section-label">Saved Projects</div>
     <div id="projects-container"></div>
-
-    <!-- Config -->
     <div class="config-section">
       <div class="section-label">Configuration</div>
       <div class="config-box">
         <label class="form-label" for="api-key-input" style="font-size:0.6rem;">OpenAI API Key</label>
         <div class="config-row">
-          <input
-            type="password"
-            id="api-key-input"
-            class="config-input"
-            placeholder="sk-..."
-            autocomplete="off"
-          />
+          <input type="password" id="api-key-input" class="config-input" placeholder="sk-..." autocomplete="off" />
           <button class="config-save-btn" id="save-key-btn">SAVE</button>
         </div>
         <div class="key-status" id="key-status"></div>
@@ -85,29 +83,33 @@
         </p>
       </div>
     </div>
-
   </div>
-  <!-- /view-dashboard -->
 
-  <!-- ══════════════ PROJECT VIEWER VIEW ══════════════ -->
+  <!-- PROJECT VIEWER VIEW -->
   <div id="view-project" class="view">
-
     <div class="viewer-url" id="viewer-url"></div>
     <div class="viewer-date" id="viewer-date"></div>
-
-    <div class="analysis-sections" id="analysis-sections">
-      <!-- Rendered by JS -->
-    </div>
-
+    <div class="analysis-sections" id="analysis-sections"></div>
   </div>
-  <!-- /view-project -->
+
+  <!-- PORTFOLIO VIEW -->
+  <div id="view-portfolio" class="view">
+    <!-- Rendered by renderPortfolioView() -->
+  </div>
+
+  <!-- AGENTS VIEW -->
+  <div id="view-agents" class="view">
+    <!-- Rendered by renderAgentsView() -->
+  </div>
+
+  <!-- BUILDER VIEW -->
+  <div id="view-builder" class="view">
+    <!-- Rendered by renderBuilderView() -->
+  </div>
 
 </div>
-<!-- /app -->
 
-<!-- Floating back button -->
-<button class="back-btn-float" id="back-btn-float">← Back to Dashboard</button>
-
+<button class="back-btn-float" id="back-btn-float">&#8592; Back</button>
 <script src="/app.js"></script>
 </body>
 </html>

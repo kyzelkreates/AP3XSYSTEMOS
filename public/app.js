@@ -5891,25 +5891,47 @@ function buildWhatIfEngine(project) {
 // SECTION 7 — Navigation
 // ═══════════════════════════════════════════════════
 const views = {
-  dashboard: document.getElementById('view-dashboard'),
-  project:   document.getElementById('view-project'),
+  dashboard:  document.getElementById('view-dashboard'),
+  project:    document.getElementById('view-project'),
+  portfolio:  document.getElementById('view-portfolio'),
+  builder:    document.getElementById('view-builder'),
+  agents:     document.getElementById('view-agents'),
 };
 const headerBack   = document.getElementById('header-back');
 const headerTitle  = document.getElementById('header-title');
 const backBtnFloat = document.getElementById('back-btn-float');
 
 function showView(name) {
-  Object.values(views).forEach(v => v.classList.remove('active'));
-  views[name].classList.add('active');
+  // Hide all views
+  Object.values(views).forEach(v => { if (v) v.classList.remove('active'); });
+  if (views[name]) views[name].classList.add('active');
+
+  // Back button — only show on single-project view
   const onProject = name === 'project';
   headerBack.classList.toggle('visible', onProject);
   backBtnFloat.classList.toggle('visible', onProject);
   headerTitle.textContent = onProject ? (currentProject?.url ? domainOf(currentProject.url) : '') : '';
+
+  // Nav tab active states
+  document.querySelectorAll('.nav-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.view === name);
+  });
+
+  // Render view-specific content
+  if (name === 'portfolio') renderPortfolioView();
+  if (name === 'builder')   renderBuilderView();
+  if (name === 'agents')    renderAgentsView();
+
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
 function navBack() { showView('dashboard'); }
 headerBack.addEventListener('click', navBack);
 backBtnFloat.addEventListener('click', navBack);
+
+// Nav tab clicks
+document.querySelectorAll('.nav-tab').forEach(tab => {
+  tab.addEventListener('click', () => showView(tab.dataset.view));
+});
 
 
 // ═══════════════════════════════════════════════════
@@ -5967,7 +5989,7 @@ async function runAnalysis() {
       existing = await dbMigrateTwin(existing);  // ensure twin present
       urlInput.value = '';
       clearStatus();
-      openProjectViewer(existing);
+      openProjectViewerFull(existing);
       setStatus('Already analysed — showing saved result.', false);
       setTimeout(clearStatus, 4000);
       return;
@@ -6215,7 +6237,7 @@ async function runAnalysis() {
     urlInput.value = '';
     clearStatus();
     await renderProjects();
-    openProjectViewer(project);
+    openProjectViewerFull(project);
 
   } catch (err) {
     console.error('[AP3XVER5E]', err);
@@ -6276,7 +6298,7 @@ async function renderProjects() {
         let proj = all2.find(p => p.id === card.dataset.id);
         if (proj) {
           proj = await dbMigrateTwin(proj);  // back-fill twin on legacy records
-          openProjectViewer(proj);
+          openProjectViewerFull(proj);
         }
       } catch (e) { setStatus('Unable to open project — ' + e.message, true); }
     });
@@ -6595,6 +6617,539 @@ if ('serviceWorker' in navigator) {
 
 
 // ═══════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════
+// SECTION 16 — Intelligence Views (Phases 3–14)
+// ═══════════════════════════════════════════════════
+
+// ── Helper: render a score bar (0-100) ──
+function renderScoreBar(label, score, colour) {
+  const s = Math.min(100, Math.max(0, parseInt(score, 10) || 0));
+  const col = colour || (s >= 70 ? '#00e87a' : s >= 45 ? '#f5a623' : '#ff5c5c');
+  return `
+  <div class="score-row">
+    <div class="score-label">${esc(label)}</div>
+    <div class="score-track"><div class="score-fill" style="width:${s}%;background:${col}"></div></div>
+    <div class="score-num" style="color:${col}">${s}</div>
+  </div>`;
+}
+
+// ── Helper: render an agent card ──
+function renderAgentCard(name, icon, fields) {
+  return `
+  <div class="agent-card">
+    <div class="agent-card-header"><span class="agent-icon">${icon}</span><span class="agent-name">${esc(name)}</span></div>
+    <div class="agent-body">${fields.map(([k,v]) => renderAgentField(k, v)).join('')}</div>
+  </div>`;
+}
+function renderAgentField(label, val) {
+  if (Array.isArray(val)) {
+    return `<div class="af-row"><div class="af-label">${esc(label)}</div><div class="af-val">${val.map(v => `<span class="kv-tag">${esc(v)}</span>`).join('') || '—'}</div></div>`;
+  }
+  return `<div class="af-row"><div class="af-label">${esc(label)}</div><div class="af-val">${esc(val || '—')}</div></div>`;
+}
+
+// ── Helper: section wrapper ──
+function intelSection(key, icon, title, html, open) {
+  return `
+  <div class="analysis-block intel-block${open ? ' open' : ''}" data-key="${key}">
+    <div class="block-header">
+      <div class="block-header-left"><div class="block-icon">${icon}</div><div class="block-title">${title}</div></div>
+      <div class="block-chevron">▾</div>
+    </div>
+    <div class="block-body">${html}</div>
+  </div>`;
+}
+
+// ────────────────────────────────────────────────────
+// PROJECT VIEW — full intelligence for one project
+// ────────────────────────────────────────────────────
+
+function buildPhase3Sections(a) {
+  const sections = [];
+  const mai = a.multi_agent_intelligence || {};
+  const fus = a.intelligence_fusion      || {};
+  const dec = a.decision_engine          || {};
+  const scores = {
+    business:    parseInt(a.business_score,    10) || 0,
+    technical:   parseInt(a.technical_score,   10) || 0,
+    investor:    parseInt(a.investor_score,    10) || 0,
+    scalability: parseInt(a.scalability_score, 10) || 0,
+    innovation:  parseInt(a.innovation_score,  10) || 0,
+  };
+
+  // ── Intelligence Scores ──
+  sections.push(intelSection('scores', '📊', 'Intelligence Scores',
+    `<div class="scores-grid">
+      ${renderScoreBar('Business',    scores.business)}
+      ${renderScoreBar('Technical',   scores.technical)}
+      ${renderScoreBar('Investor',    scores.investor)}
+      ${renderScoreBar('Scalability', scores.scalability)}
+      ${renderScoreBar('Innovation',  scores.innovation)}
+    </div>`, true));
+
+  // ── Decision Engine ──
+  const viabCol = { high:'#00e87a', medium:'#f5a623', low:'#ff5c5c' }[dec.viability] || '#888';
+  const recCol  = { scale:'#00e87a', improve:'#f5a623', pivot:'#f5a623', avoid:'#ff5c5c' }[dec.build_recommendation] || '#888';
+  sections.push(intelSection('decision', '⚡', 'Decision Engine',
+    `<div class="decision-grid">
+      <div class="decision-cell">
+        <div class="dc-label">VIABILITY</div>
+        <div class="dc-value" style="color:${viabCol};font-size:1.3rem;">${esc((dec.viability||'—').toUpperCase())}</div>
+      </div>
+      <div class="decision-cell">
+        <div class="dc-label">BUILD REC</div>
+        <div class="dc-value" style="color:${recCol};font-size:1.3rem;">${esc((dec.build_recommendation||'—').toUpperCase())}</div>
+      </div>
+      <div class="decision-cell">
+        <div class="dc-label">CONFIDENCE</div>
+        <div class="dc-value" style="font-size:1.3rem;">${parseInt(dec.confidence_score,10)||0}<span style="font-size:0.8rem;color:var(--text-2)">/100</span></div>
+      </div>
+    </div>
+    <div class="intel-prose">${esc(dec.reasoning_summary || dec.recommendation || '—')}</div>`, true));
+
+  // ── Multi-Agent Intelligence ──
+  const r  = mai.research  || {};
+  const b  = mai.business  || {};
+  const t  = mai.technical || {};
+  const iv = mai.investor  || {};
+  const ri = mai.risk      || {};
+  const g  = mai.growth    || {};
+
+  const agentsHtml = [
+    renderAgentCard('Research Agent',   '🔍', [['Industry', r.industry], ['Category', r.category], ['Purpose', r.purpose], ['Context', r.context_summary]]),
+    renderAgentCard('Business Agent',   '💼', [['Model', b.monetisation_model], ['Revenue Streams', b.revenue_streams], ['Pricing', b.pricing_signals], ['Opportunity', b.opportunity_rating]]),
+    renderAgentCard('Technical Agent',  '🔧', [['Stack', t.inferred_stack], ['Architecture', t.architecture_type], ['Complexity', t.complexity_rating], ['Scalability', t.scalability_assessment]]),
+    renderAgentCard('Investor Agent',   '💰', [['Funding Potential', iv.funding_potential], ['Market Opportunity', iv.market_opportunity], ['Signals', iv.investment_signals], ['Valuation', iv.valuation_indicators]]),
+    renderAgentCard('Risk Agent',       '⚠',  [['Key Risks', ri.key_risks], ['Operational', ri.operational_concerns], ['Market Risks', ri.market_risks], ['Risk Level', ri.overall_risk_level]]),
+    renderAgentCard('Growth Agent',     '🚀', [['Scaling Ops', g.scaling_opportunities], ['Expansion', g.expansion_ideas], ['Partnerships', g.partnership_potential], ['Trajectory', g.growth_trajectory]]),
+  ].join('');
+  sections.push(intelSection('agents', '🤖', 'Multi-Agent Intelligence (6 Agents)', `<div class="agents-grid">${agentsHtml}</div>`));
+
+  // ── Intelligence Fusion ──
+  sections.push(intelSection('fusion', '🔮', 'Intelligence Fusion',
+    `<div class="intel-prose">${esc(fus.unified_summary || '—')}</div>
+     ${fus.key_insights?.length ? `<div class="roadmap-group"><div class="roadmap-group-label">Key Insights</div><div class="block-list">${renderList(fus.key_insights)}</div></div>` : ''}
+     ${fus.strongest_opportunities?.length ? `<div class="roadmap-group"><div class="roadmap-group-label">Strongest Opportunities</div><div class="block-list">${renderList(fus.strongest_opportunities)}</div></div>` : ''}
+     ${fus.biggest_risks?.length ? `<div class="roadmap-group"><div class="roadmap-group-label">Biggest Risks</div><div class="block-list">${renderList(fus.biggest_risks)}</div></div>` : ''}
+     <div class="intel-score-line">Overall Intelligence Score: <strong>${parseInt(fus.overall_intelligence_score,10)||0}/100</strong></div>`));
+
+  // ── Reasoning Trace ──
+  const rt = a.reasoning_trace || {};
+  if (rt.final_reasoning_summary) {
+    sections.push(intelSection('trace', '🧠', 'Reasoning Trace',
+      `<div class="intel-prose">${esc(rt.final_reasoning_summary)}</div>
+       ${rt.key_signals?.length ? `<div class="roadmap-group"><div class="roadmap-group-label">Key Signals Detected</div><div class="block-list">${renderList(rt.key_signals)}</div></div>` : ''}
+       ${rt.assumptions_made?.length ? `<div class="roadmap-group"><div class="roadmap-group-label">Assumptions Made</div><div class="block-list">${renderList(rt.assumptions_made)}</div></div>` : ''}`));
+  }
+
+  // ── Confidence Model ──
+  const cm = a.confidence_model || {};
+  if (cm.overall_confidence !== undefined) {
+    const fc = cm.field_confidence || {};
+    sections.push(intelSection('confidence', '🎯', 'Confidence & Uncertainty',
+      `<div class="scores-grid">
+        ${renderScoreBar('Overall Confidence', cm.overall_confidence)}
+        ${renderScoreBar('Business Model',     fc.business_model)}
+        ${renderScoreBar('Technical Analysis', fc.technical_analysis)}
+        ${renderScoreBar('Investor Readiness', fc.investor_readiness)}
+        ${renderScoreBar('Risk Analysis',      fc.risk_analysis)}
+       </div>
+       ${cm.uncertainty_flags?.length ? `<div class="roadmap-group"><div class="roadmap-group-label">Uncertainty Flags</div><div class="block-list">${renderList(cm.uncertainty_flags)}</div></div>` : ''}
+       ${cm.reliability_summary ? `<div class="intel-prose" style="margin-top:10px">${esc(cm.reliability_summary)}</div>` : ''}`));
+  }
+
+  // ── What-If Simulation Engine ──
+  const wi = a.what_if_engine || {};
+  if (Array.isArray(wi.scenarios) && wi.scenarios.length) {
+    const scenHtml = wi.scenarios.map(sc => {
+      const fCol = sc.feasibility_score >= 65 ? '#00e87a' : sc.feasibility_score >= 40 ? '#f5a623' : '#ff5c5c';
+      return `
+      <div class="whatif-card">
+        <div class="whatif-header">
+          <div class="whatif-scenario">${esc(sc.scenario)}</div>
+          <div class="whatif-score" style="color:${fCol}">${sc.feasibility_score}<span style="font-size:0.7rem;color:var(--text-2)">/100</span></div>
+        </div>
+        <div class="whatif-pred">${esc(sc.outcome_prediction)}</div>
+        <div class="whatif-cols">
+          <div>
+            <div class="roadmap-group-label">Risk Factors</div>
+            <div class="block-list">${renderList(sc.risk_factors)}</div>
+          </div>
+          <div>
+            <div class="roadmap-group-label">Opportunities</div>
+            <div class="block-list">${renderList(sc.opportunity_factors)}</div>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+    sections.push(intelSection('whatif', '🔭', 'What-If Simulation Engine (5 Scenarios)', `<div class="whatif-list">${scenHtml}</div>`));
+  }
+
+  // ── Semantic Memory ──
+  const sm = a.semantic_memory || {};
+  if (sm.strategic_role) {
+    sections.push(intelSection('semantic', '🧬', 'Semantic Memory',
+      `${renderKV([
+        ['Strategic Role',       sm.strategic_role],
+        ['Functional Identity',  sm.functional_identity],
+        ['Concept Tags',         sm.concept_tags],
+        ['Meaning Vector',       sm.meaning_vector ? sm.meaning_vector.split('|').slice(0,4).join(' | ') + '…' : '—'],
+      ])}`));
+  }
+
+  return sections;
+}
+
+function buildProjectPhase3HTML(a) {
+  const sections = buildPhase3Sections(a);
+  if (!sections.length) return '<div class="empty-state" style="padding:24px">No Phase 3+ intelligence computed yet.</div>';
+  return sections.map((html) => html).join('');
+}
+
+// ────────────────────────────────────────────────────
+// PORTFOLIO VIEW — cross-project intelligence
+// ────────────────────────────────────────────────────
+
+async function renderPortfolioView() {
+  const el = document.getElementById('view-portfolio');
+  if (!el) return;
+  el.innerHTML = '<div class="view-loading">Loading portfolio intelligence…</div>';
+
+  let projects = [];
+  try { projects = await dbGetAll(); } catch {}
+  const valid = projects.filter(p => p && p.analysis?.project_name);
+
+  if (!valid.length) {
+    el.innerHTML = `
+      <div class="view-header"><div class="view-title">Portfolio Intelligence</div></div>
+      <div class="empty-state" style="padding:40px 20px">
+        <span class="empty-icon">⬡</span>
+        Analyse your first project to generate portfolio intelligence.
+      </div>`;
+    return;
+  }
+
+  // Use the most recently analysed project's portfolio-level intelligence
+  const latest = valid.sort((a,b) => new Date(b.created_at) - new Date(a.created_at))[0];
+  const a = latest.analysis || {};
+  const pi  = a.portfolio_intelligence_report || {};
+  const cpr = a.cross_project_reasoning       || {};
+  const cpl = a.cross_project_links           || {};
+  const evo = a.evolution_tracker             || {};
+
+  let html = `<div class="view-header"><div class="view-title">Portfolio Intelligence</div><div class="view-sub">${valid.length} project${valid.length > 1 ? 's' : ''} analysed</div></div>`;
+
+  // Portfolio Overview
+  if (pi.overview) {
+    html += intelSection('pi_overview', '🗂', 'Portfolio Overview',
+      `<div class="intel-prose">${esc(pi.overview)}</div>
+       ${pi.total_projects !== undefined ? `<div class="intel-score-line">Projects: <strong>${pi.total_projects}</strong> | Avg Score: <strong>${Math.round(pi.average_intelligence_score||0)}/100</strong></div>` : ''}`, true);
+  }
+
+  // Cross-Project Reasoning
+  if (cpr.portfolio_summary) {
+    html += intelSection('cpr', '🔗', 'Cross-Project Reasoning',
+      `<div class="intel-prose">${esc(cpr.portfolio_summary)}</div>
+       ${cpr.shared_patterns?.length ? `<div class="roadmap-group"><div class="roadmap-group-label">Shared Patterns</div><div class="block-list">${renderList(cpr.shared_patterns)}</div></div>` : ''}
+       ${cpr.cross_project_opportunities?.length ? `<div class="roadmap-group"><div class="roadmap-group-label">Cross-Project Opportunities</div><div class="block-list">${renderList(cpr.cross_project_opportunities)}</div></div>` : ''}
+       ${cpr.portfolio_risks?.length ? `<div class="roadmap-group"><div class="roadmap-group-label">Portfolio Risks</div><div class="block-list">${renderList(cpr.portfolio_risks)}</div></div>` : ''}`);
+  }
+
+  // Evolution Tracker
+  if (evo.portfolio_evolution_summary) {
+    html += intelSection('evo', '📈', 'System Evolution Tracker',
+      `<div class="intel-prose">${esc(evo.portfolio_evolution_summary)}</div>
+       <div class="scores-grid" style="margin-top:12px">
+         ${renderScoreBar('System Maturity', evo.system_maturity_score || 0)}
+       </div>
+       ${evo.skill_growth_trend ? `<div class="intel-prose" style="margin-top:10px;font-size:0.82rem">📊 ${esc(evo.skill_growth_trend)}</div>` : ''}
+       ${Array.isArray(evo.project_progression) && evo.project_progression.length ?
+        `<div class="roadmap-group" style="margin-top:12px">
+           <div class="roadmap-group-label">Project Progression</div>
+           ${evo.project_progression.map((p, i) => `
+             <div class="progression-row">
+               <div class="prog-num">${i+1}</div>
+               <div class="prog-body">
+                 <div class="prog-meta">
+                   <span class="kv-tag">${esc(p.complexity_level)}</span>
+                   <span class="kv-tag" style="background:rgba(0,232,122,0.12)">${esc(p.feature_maturity)}</span>
+                   <span style="color:var(--text-2);font-size:0.72rem">${esc(p.timestamp ? new Date(p.timestamp).toLocaleDateString() : '')}</span>
+                 </div>
+                 <div class="prog-notes">${esc(p.notes)}</div>
+               </div>
+             </div>`).join('')}
+         </div>` : ''}`);
+  }
+
+  // Portfolio-wide scores from all projects
+  if (valid.length >= 2) {
+    const avgScores = {
+      business:    Math.round(valid.reduce((s,p) => s + (parseInt(p.analysis?.business_score,10)||0), 0) / valid.length),
+      technical:   Math.round(valid.reduce((s,p) => s + (parseInt(p.analysis?.technical_score,10)||0), 0) / valid.length),
+      investor:    Math.round(valid.reduce((s,p) => s + (parseInt(p.analysis?.investor_score,10)||0), 0) / valid.length),
+      scalability: Math.round(valid.reduce((s,p) => s + (parseInt(p.analysis?.scalability_score,10)||0), 0) / valid.length),
+      innovation:  Math.round(valid.reduce((s,p) => s + (parseInt(p.analysis?.innovation_score,10)||0), 0) / valid.length),
+    };
+    html += intelSection('port_scores', '📊', 'Portfolio Average Scores',
+      `<div class="scores-grid">
+        ${renderScoreBar('Business',    avgScores.business)}
+        ${renderScoreBar('Technical',   avgScores.technical)}
+        ${renderScoreBar('Investor',    avgScores.investor)}
+        ${renderScoreBar('Scalability', avgScores.scalability)}
+        ${renderScoreBar('Innovation',  avgScores.innovation)}
+       </div>`, true);
+  }
+
+  // Comparison Engine (from most recent project with pairs)
+  const ce = a.comparison_engine || {};
+  if (Array.isArray(ce.comparison_pairs) && ce.comparison_pairs.length) {
+    const pairsHtml = ce.comparison_pairs.slice(0, 4).map(pair => `
+      <div class="comp-pair">
+        <div class="comp-header">
+          <span class="comp-name">${esc(pair.project_a || '?')}</span>
+          <span class="comp-vs">vs</span>
+          <span class="comp-name">${esc(pair.project_b || '?')}</span>
+        </div>
+        ${pair.winner ? `<div class="comp-winner">Winner: <strong style="color:var(--accent)">${esc(pair.winner)}</strong></div>` : ''}
+        ${pair.summary ? `<div class="intel-prose" style="font-size:0.8rem;margin-top:8px">${esc(pair.summary)}</div>` : ''}
+        ${Array.isArray(pair.key_differences) && pair.key_differences.length ? `<div class="block-list" style="margin-top:8px">${renderList(pair.key_differences.slice(0,3))}</div>` : ''}
+      </div>`).join('');
+    html += intelSection('compare', '⚖', 'Project Comparison Engine',
+      `<div class="comp-list">${pairsHtml}</div>`);
+  }
+
+  // Cross-project links (on current latest project)
+  if (Array.isArray(cpl.similar_projects) && cpl.similar_projects.length) {
+    html += intelSection('links', '🔀', 'Cross-Project Links',
+      `${cpl.similar_projects.length ? `<div class="roadmap-group"><div class="roadmap-group-label">Similar Projects</div><div class="block-list">${renderList(cpl.similar_projects.map(p => typeof p === 'object' ? (p.project_name || p.id || JSON.stringify(p)) : p))}</div></div>` : ''}
+       ${cpl.shared_patterns?.length ? `<div class="roadmap-group"><div class="roadmap-group-label">Shared Patterns</div><div class="block-list">${renderList(cpl.shared_patterns)}</div></div>` : ''}
+       ${cpl.market_clusters?.length ? `<div class="roadmap-group"><div class="roadmap-group-label">Market Clusters</div><div class="block-list">${renderList(cpl.market_clusters)}</div></div>` : ''}`);
+  }
+
+  el.innerHTML = html;
+  // Wire collapsible blocks
+  el.querySelectorAll('.block-header').forEach(h => {
+    h.addEventListener('click', () => h.closest('.analysis-block').classList.toggle('open'));
+  });
+}
+
+// ────────────────────────────────────────────────────
+// BUILDER VIEW — builder profile intelligence
+// ────────────────────────────────────────────────────
+
+async function renderBuilderView() {
+  const el = document.getElementById('view-builder');
+  if (!el) return;
+  el.innerHTML = '<div class="view-loading">Loading builder intelligence…</div>';
+
+  let projects = [];
+  try { projects = await dbGetAll(); } catch {}
+  const valid = projects.filter(p => p && p.analysis?.project_name);
+
+  if (!valid.length) {
+    el.innerHTML = `
+      <div class="view-header"><div class="view-title">Builder Profile</div></div>
+      <div class="empty-state" style="padding:40px 20px">
+        <span class="empty-icon">⬡</span>
+        Analyse projects to generate your builder profile.
+      </div>`;
+    return;
+  }
+
+  const latest = valid.sort((a,b) => new Date(b.created_at) - new Date(a.created_at))[0];
+  const a  = latest.analysis || {};
+  const bp = a.builder_profile || {};
+
+  let html = `<div class="view-header"><div class="view-title">Builder Profile</div><div class="view-sub">Based on ${valid.length} project${valid.length > 1 ? 's' : ''}</div></div>`;
+
+  // Identity banner
+  if (bp.technical_identity) {
+    html += `<div class="builder-identity">
+      <div class="bi-label">TECHNICAL IDENTITY</div>
+      <div class="bi-value">${esc(bp.technical_identity)}</div>
+    </div>`;
+  }
+
+  // Summary
+  if (bp.overall_builder_summary) {
+    html += intelSection('bp_summary', '📋', 'Builder Summary',
+      `<div class="intel-prose">${esc(bp.overall_builder_summary)}</div>`, true);
+  }
+
+  // Skill scores
+  const ss = bp.skill_scores || {};
+  if (Object.keys(ss).length) {
+    html += intelSection('bp_skills', '⚙', 'Skill Scores',
+      `<div class="scores-grid">
+        ${renderScoreBar('Frontend',        ss.frontend       || 0)}
+        ${renderScoreBar('Backend',         ss.backend        || 0)}
+        ${renderScoreBar('AI Systems',      ss.ai_systems     || 0)}
+        ${renderScoreBar('Architecture',    ss.architecture   || 0)}
+        ${renderScoreBar('Product Design',  ss.product_design || 0)}
+       </div>`, true);
+  }
+
+  // Dominant skills
+  if (Array.isArray(bp.dominant_skills) && bp.dominant_skills.length) {
+    html += intelSection('bp_domskills', '✦', 'Dominant Skills',
+      `<div class="tags-wrap">${bp.dominant_skills.map(s => `<span class="kv-tag tag-accent">${esc(s)}</span>`).join('')}</div>`);
+  }
+
+  // System building style
+  if (bp.system_building_style) {
+    html += intelSection('bp_style', '🏗', 'System Building Style',
+      `<div class="intel-prose">${esc(bp.system_building_style)}</div>`);
+  }
+
+  // Strongest domains
+  if (Array.isArray(bp.strongest_domains) && bp.strongest_domains.length) {
+    html += intelSection('bp_domains', '🌐', 'Strongest Domains',
+      `${bp.strongest_domains.map(d => `<div class="domain-item">${esc(typeof d === 'object' ? JSON.stringify(d) : d)}</div>`).join('')}`);
+  }
+
+  // Innovation pattern
+  if (Array.isArray(bp.innovation_pattern) && bp.innovation_pattern.length) {
+    html += intelSection('bp_innov', '💡', 'Innovation Pattern',
+      `<div class="block-list">${renderList(bp.innovation_pattern)}</div>`);
+  }
+
+  // Architecture preferences
+  if (Array.isArray(bp.architecture_preferences) && bp.architecture_preferences.length) {
+    html += intelSection('bp_arch', '🔬', 'Architecture Preferences',
+      `<div class="block-list">${renderList(bp.architecture_preferences)}</div>`);
+  }
+
+  // Recurring patterns
+  if (Array.isArray(bp.recurring_patterns) && bp.recurring_patterns.length) {
+    html += intelSection('bp_patterns', '🔁', 'Recurring Patterns',
+      `<div class="block-list">${renderList(bp.recurring_patterns)}</div>`);
+  }
+
+  el.innerHTML = html;
+  el.querySelectorAll('.block-header').forEach(h => {
+    h.addEventListener('click', () => h.closest('.analysis-block').classList.toggle('open'));
+  });
+}
+
+// ────────────────────────────────────────────────────
+// AGENTS VIEW — per-project intelligence detail picker
+// ────────────────────────────────────────────────────
+
+async function renderAgentsView() {
+  const el = document.getElementById('view-agents');
+  if (!el) return;
+  el.innerHTML = '<div class="view-loading">Loading intelligence layers…</div>';
+
+  let projects = [];
+  try { projects = await dbGetAll(); } catch {}
+  const valid = projects.filter(p => p && p.analysis?.project_name)
+    .sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+
+  if (!valid.length) {
+    el.innerHTML = `
+      <div class="view-header"><div class="view-title">Intelligence Agents</div></div>
+      <div class="empty-state" style="padding:40px 20px">
+        <span class="empty-icon">🤖</span>
+        Analyse a project to see agent outputs.
+      </div>`;
+    return;
+  }
+
+  // Project picker
+  const pickerHtml = `
+    <div class="view-header"><div class="view-title">Intelligence Agents</div></div>
+    <div class="project-picker">
+      <label class="form-label" style="font-size:0.6rem;margin-bottom:6px">Select Project</label>
+      <select id="agent-project-select" class="config-input" style="cursor:pointer">
+        ${valid.map(p => `<option value="${esc(p.id)}">${esc(p.analysis?.project_name || p.url)}</option>`).join('')}
+      </select>
+    </div>
+    <div id="agents-intel-body"></div>`;
+
+  el.innerHTML = pickerHtml;
+
+  const selectEl = el.querySelector('#agent-project-select');
+  const bodyEl   = el.querySelector('#agents-intel-body');
+
+  function renderAgentsFor(projectId) {
+    const project = valid.find(p => p.id === projectId);
+    if (!project) return;
+    const a = project.analysis || {};
+    const sections = buildPhase3Sections(a);
+    // Also add what-if, semantic, and reasoning trace if not already included
+    bodyEl.innerHTML = sections.join('');
+    bodyEl.querySelectorAll('.block-header').forEach(h => {
+      h.addEventListener('click', () => h.closest('.analysis-block').classList.toggle('open'));
+    });
+  }
+
+  selectEl.addEventListener('change', () => renderAgentsFor(selectEl.value));
+  if (valid.length) renderAgentsFor(valid[0].id);
+}
+
+// ────────────────────────────────────────────────────
+// Patch openProjectViewer to include Phase 3-14 sections
+// ────────────────────────────────────────────────────
+function openProjectViewerFull(project) {
+  currentProject = project;
+  const a = project.analysis || {};
+
+  document.getElementById('viewer-url').textContent  = project.url;
+  document.getElementById('viewer-date').textContent = fmtDate(project.created_at);
+
+  const sectionsEl = document.getElementById('analysis-sections');
+
+  // Phase 1+2 sections
+  const p12sections = buildReportSections(a);
+  // Phase 3-14 sections
+  const p3sections  = buildPhase3Sections(a);
+
+  const allHtml = [
+    // Tab switcher inside project viewer
+    `<div class="viewer-tabs">
+      <button class="vtab active" data-vtab="core">📋 Core Reports</button>
+      <button class="vtab" data-vtab="intel">🤖 Intelligence</button>
+    </div>`,
+    `<div id="vtab-core" class="vtab-panel active">`,
+    ...p12sections.map((s, i) => `
+      <div class="analysis-block ${s.special || ''} ${i === 0 ? 'open' : ''}" data-key="${s.key}">
+        <div class="block-header">
+          <div class="block-header-left">
+            <div class="block-icon">${s.icon}</div>
+            <div class="block-title">${s.label}</div>
+          </div>
+          <div class="block-chevron">▾</div>
+        </div>
+        <div class="block-body">${s.html}</div>
+      </div>`),
+    `</div>`,
+    `<div id="vtab-intel" class="vtab-panel">`,
+    ...p3sections,
+    `</div>`,
+  ].join('');
+
+  sectionsEl.innerHTML = allHtml;
+
+  // Collapsible blocks
+  sectionsEl.querySelectorAll('.block-header').forEach(h => {
+    h.addEventListener('click', () => h.closest('.analysis-block').classList.toggle('open'));
+  });
+
+  // Viewer tab switching
+  sectionsEl.querySelectorAll('.vtab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      sectionsEl.querySelectorAll('.vtab').forEach(t => t.classList.remove('active'));
+      sectionsEl.querySelectorAll('.vtab-panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      sectionsEl.querySelector('#vtab-' + tab.dataset.vtab)?.classList.add('active');
+    });
+  });
+
+  showView('project');
+}
+
+
 // SECTION 15 — Init
 // ═══════════════════════════════════════════════════
 // Global error handlers — catch uncaught errors in production
