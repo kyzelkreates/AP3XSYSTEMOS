@@ -4278,7 +4278,7 @@ function buildFinalReasoningSummary(a, mai, fus, dec, sig) {
   if (meanScore > 0) parts.push('Across five intelligence dimensions, the mean score was ' + meanScore + '/100.');
   if (topStrength)   parts.push('The primary strength detected was: ' + topStrength + '.');
   if (topRisk)       parts.push('The primary risk identified was: ' + topRisk + '.');
-  if (topInsight)    parts.push("The fusion layer's key insight: " + topInsight + '.');
+  if (topInsight)    parts.push("The fusion layer key insight: " + topInsight + '.');
   if (contradictions > 0) parts.push(contradictions + ' contradiction(s) were noted between agents, which factored into the confidence assessment.');
   parts.push('The decision engine concluded viability is "' + viability + '" with a build recommendation of "' + buildRec + '" at ' + confidence + '/100 confidence.');
   if (reasoning && reasoning.length > 20 && !reasoning.toLowerCase().includes('could not')) parts.push(reasoning);
@@ -5814,7 +5814,7 @@ function buildWindDownScenario(a, mai, fus, dec, sig) {
   const projName = a.project_name || 'This project';
   let outcome_prediction;
   if (buildRec === 'avoid' && feasibility_score >= 60)
-    outcome_prediction = 'Stored decision signals actively recommend against continuing ' + projName + ' — a wind-down would align with the intelligence layer's assessment and allow resource reallocation to higher-viability opportunities.';
+    outcome_prediction = 'Stored decision signals actively recommend against continuing ' + projName + ' — a wind-down would align with the intelligence layer assessment and allow resource reallocation to higher-viability opportunities.';
   else if (riskLevel.includes('high'))
     outcome_prediction = 'Winding down ' + projName + ' would eliminate high-risk exposure — however, stored signals also indicate unrealised opportunities that would be forfeited. A partial wind-down or pivot may be preferable.';
   else if (bizScore >= 60)
